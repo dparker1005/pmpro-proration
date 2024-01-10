@@ -104,9 +104,9 @@ function pmprorate_pmpro_checkout_level( $level ) {
 				4. Other code in this plugin handles changing the user's level on the future date.
 			*/
 			$level->initial_payment = 0;
-			global $pmpro_checkout_old_level;
-			$pmpro_checkout_old_level = $clevel;
-			$pmpro_checkout_old_level->next_payment = pmprorate_trim_timestamp( pmpro_next_payment( $current_user->ID ) );
+			global $pmprorate_checkout_old_level;
+			$pmprorate_checkout_old_level = $clevel;
+			$pmprorate_checkout_old_level->next_payment = pmprorate_trim_timestamp( pmpro_next_payment( $current_user->ID ) );
 			
 			//make sure payment date stays the same
 			add_filter( 'pmpro_profile_start_date', 'pmprorate_set_startdate_to_next_payment_date', 10, 2 );		
@@ -274,30 +274,20 @@ function pmprorate_pmpro_init() {
 add_action( 'init', 'pmprorate_pmpro_init' );
 
 /**
- * After checkout, if the user downgraded, then revert to the old level and remember to change them to the new level later.
+ * After checkout, if the user downgraded, revert to the old level and remember to change them to the new level later.
+ *
+ * @param int $user_id The user ID.
+ * @param MemberOrder $order The order object.
  */
-function pmprorate_pmpro_after_checkout( $user_id ) {
-	global $pmpro_checkout_old_level, $wpdb;
-	if ( ! empty( $pmpro_checkout_old_level ) && ! empty( $pmpro_checkout_old_level->next_payment ) ) {
-		$new_level = pmpro_getMembershipLevelForUser( $user_id );
+function pmprorate_pmpro_after_checkout( $user_id, $order ) {
+	global $pmprorate_checkout_old_level;
 
-		//remember to update to this level later
-		update_user_meta( $user_id, "pmpro_change_to_level", array( "date"  => $pmpro_checkout_old_level->next_payment,
-		                                                            "level" => $new_level->id
-		) );
-
-		//change their membership level
-		if ( false === $wpdb->update(
-				$wpdb->pmpro_memberships_users,
-				array( 'membership_id' => $pmpro_checkout_old_level->id ),
-				array( 'membership_id' => $new_level->id, 'user_id' => $user_id, 'status' => 'active' )
-			)
-		) {
-			pmpro_setMessage( esc_html__( 'Problem updating membership information. Please report this to the webmaster.', 'pmpro-proration' ), 'error' );
-		};
-	} else {
-		delete_user_meta( $user_id, "pmpro_change_to_level" );
+	// If the user isn't downgrading, bail.
+	if ( empty( $pmprorate_checkout_old_level ) || empty( $pmprorate_checkout_old_level->next_payment ) ) {
+		return;
 	}
-}
 
-add_filter( 'pmpro_after_checkout', 'pmprorate_pmpro_after_checkout' );
+	// Set up the delayed downgrade.
+	pmproprorate_set_up_delayed_downgrade( $user_id, $order->membership_id, $pmprorate_checkout_old_level->id, $pmprorate_checkout_old_level->next_payment );
+}
+add_filter( 'pmpro_after_checkout', 'pmprorate_pmpro_after_checkout', 10, 2 );
